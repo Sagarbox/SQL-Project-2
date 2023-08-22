@@ -1,0 +1,120 @@
+show databases;
+use operation_analytics;
+---
+# Objective: Calculate the number of jobs reviewed per hour for each day in November 2020
+---
+select count(distinct job_id)/(30*24) as count_of_job_review
+	from job_data
+	where ds between '2020-11-01' and '2020-11-30';
+
+
+---
+#Calculate the 7-day rolling average of throughput (number of events per second).
+---
+Select ds, job_reviewed, avg(Job_reviewed) over( order by ds rows between 6 preceding and current row) as T_put_7_days
+        From
+     (select ds, count(distinct job_id) as job_reviewed
+	   From job_data
+		Where ds between '2020-11-01' and '2020-11-30'
+        Group by ds
+      )T_put;
+
+
+---
+ #Calculate the percentage share of each language in the last 30 days.   
+---
+ select language,
+the_jobs,
+100.0* the_jobs/all_jobs as ptg_of_lang
+from(select language, count(distinct job_id) as the_jobs
+from job_data
+group by language)language_table_1
+cross join(select count(distinct job_id) as all_jobs 
+from job_data
+)language_table_2;
+
+
+
+---
+# Identify duplicate rows in the data with the same value present in them.
+---
+select * from
+(
+select *,
+row_number()over(partition by job_id) as count_of_rows
+from job_data
+)D_rows
+where count_of_rows >=2;
+
+
+
+---
+# Measure the activeness of users on a weekly basis.
+---
+select extract(week from created_at) as count_of_week,
+count(distinct user_id) as num_of_actual_user
+from users
+group by count_of_week;
+
+
+
+---
+# Analyze the growth of users over time for a product.
+---
+select year, num_week, count_of_active_users,
+    sum(count_of_active_users) over(order by year, num_week rows between unbounded preceding and current row) 
+    as _active_users
+    from (select 
+    extract(year from u.activated_at) as year,
+    extract(week from u.activated_at)as num_week,
+    count(distinct u.user_id) as count_of_active_users
+    from users u
+    where state='active' 
+    group by year, num_week 
+    order by year, num_week
+    )users_growth;
+
+
+
+---
+# Measure the activeness of users on a weekly basis per device.
+---
+select 
+       extract(year from occurred_at) as count_of_years,
+       extract(week from occurred_at) as count_of_week,
+       device,
+       count(distinct user_id) as count_of_users
+       from events
+       where event_type = 'engagement'
+       group by 1,2,3
+       order by 1,2,3;
+       
+
+
+---
+# Analyze the retention of users on a weekly basis after signing up for a product.
+---
+select extract(week from e.occurred_at) as weeks,
+count(case when	e.event_type = 'engagement' then e.user_id else NULL end) as engagement,
+count(case when e.event_type = 'signup_flow' then e.user_id else NULL end) as signup
+from events e
+group by 1
+order by 1;
+
+
+
+---
+#  Analyze how users are engaging with the email service.
+---
+select 
+100.0 * sum(case when email_category = 'email_opened' then 1 else 0 end)
+        /sum(case when email_category = 'email_sent' then 1 else 0 end) as email_opening_occurance,
+100.0 * sum(case when email_category = 'email_clicked' then 1 else 0 end)
+        /sum(case when email_category = 'email_sent' then 1 else 0 end) as email_click_occurance  
+from(select *,
+case when action in ('sent_weekly_digest', 'sent_reengagement_email')
+     then 'email_sent'
+     when action in ('email_open')
+     then 'email_opened'
+     when action in ('email_clickthrough')
+     then 'email_clicked' end as email_category  from email_events)X;
